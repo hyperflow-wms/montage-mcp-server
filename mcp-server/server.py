@@ -54,9 +54,9 @@ async def list_tools() -> list[Tool]:
             - degrees: Size of output mosaic in degrees (e.g., 0.2, 0.5, 1.0)
             - bands: List of band definitions in format 'survey:band:color'
               Examples: '2mass:j:red', 'dss:DSS2B:blue'
-            - output_format: Optional output format: 'yaml' (default), 'wfformat' (WfCommons JSON), or 'hyperflow' (JSON)
+            - output_format: Optional output format: 'both' (default - generates both HyperFlow and WfFormat), 'wfformat' (WfCommons JSON), 'hyperflow' (JSON), or 'yaml' (legacy)
 
-            Returns: Workflow in YAML or HyperFlow JSON format
+            Returns: Workflow in specified format(s)
             """,
             inputSchema={
                 "type": "object",
@@ -80,8 +80,8 @@ async def list_tools() -> list[Tool]:
                     },
                     "output_format": {
                         "type": "string",
-                        "enum": ["yaml", "wfformat", "hyperflow"],
-                        "description": "Output format: 'yaml' (default), 'wfformat' (WfCommons JSON), or 'hyperflow' (JSON)"
+                        "enum": ["both", "yaml", "wfformat", "hyperflow"],
+                        "description": "Output format: 'both' (default - HyperFlow + WfFormat in same directory), 'wfformat' (WfCommons JSON), 'hyperflow' (JSON), or 'yaml' (legacy)"
                     }
                 },
                 "required": ["center", "degrees", "bands"]
@@ -227,14 +227,136 @@ def _generate_workflow_summary(workflow_dict: dict, format_name: str) -> str:
     return summary
 
 
+def _generate_workflow_info(center: str, degrees: float, bands: list, output_format: str,
+                            workflow_dict: dict, workflow_files_info: list, aux_files: list,
+                            timestamp: str) -> str:
+    """Generate workflow info file content."""
+    from collections import Counter
+    from datetime import datetime
+
+    # Extract workflow statistics
+    tasks = workflow_dict.get('tasks', [])
+    files = workflow_dict.get('files', {})
+    if isinstance(files, dict):
+        file_count = len(files)
+    else:
+        file_count = len(files) if files else 0
+
+    inputs = workflow_dict.get('inputs', [])
+    outputs = workflow_dict.get('outputs', [])
+
+    # Count tasks by executable
+    executables = Counter(task.get('executable', 'unknown') for task in tasks)
+
+    # Build info content
+    info = []
+    info.append("=" * 70)
+    info.append("Montage Workflow Information")
+    info.append("=" * 70)
+    info.append("")
+    info.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    info.append(f"Generator: Montage MCP Server v1.2.0")
+    info.append("")
+
+    # Determine which formats were generated
+    generated_formats = []
+    if "workflow.json" in str(workflow_files_info):
+        generated_formats.append("HyperFlow")
+    if "workflow-wfformat.json" in str(workflow_files_info):
+        generated_formats.append("WfFormat")
+    if "workflow.yml" in str(workflow_files_info):
+        generated_formats.append("YAML")
+
+    formats_str = ", ".join(generated_formats) if generated_formats else "unknown"
+
+    info.append("Generation Parameters")
+    info.append("-" * 70)
+    info.append(f"  Center:         {center}")
+    info.append(f"  Size:           {degrees} degrees")
+    info.append(f"  Bands:          {', '.join(bands)}")
+    info.append(f"  Formats:        {formats_str}")
+    info.append("")
+
+    info.append("Workflow Statistics")
+    info.append("-" * 70)
+    info.append(f"  Total Tasks:    {len(tasks):,}")
+    info.append(f"  Total Files:    {file_count:,}")
+    info.append(f"  Input Files:    {len(inputs)}")
+    info.append(f"  Output Files:   {len(outputs)}")
+    info.append("")
+
+    info.append("Tasks by Executable")
+    info.append("-" * 70)
+    for exe, count in sorted(executables.items(), key=lambda x: -x[1]):
+        info.append(f"  {exe:20s} {count:4,} tasks")
+    info.append("")
+
+    info.append("Generated Files")
+    info.append("-" * 70)
+    info.append("Workflow Files:")
+    for wf_info in workflow_files_info:
+        info.append(f"  - {wf_info}")
+    info.append("")
+    info.append(f"Auxiliary Files: ({len(aux_files)} files)")
+    info.append("  - rc.txt              Replica catalog (file locations)")
+    info.append("  - region.hdr          Target region header")
+    info.append("  - region-oversized.hdr Oversized region header")
+    info.append("  - *-raw.tbl           Raw image metadata tables")
+    info.append("  - *-images.tbl        Image catalog tables")
+    info.append("  - *-projected.tbl     Projected image tables")
+    info.append("  - *-corrected.tbl     Background-corrected image tables")
+    info.append("  - *-diffs.tbl         Image difference tables")
+    info.append("  - *-stat.tbl          Image statistics tables")
+    info.append("")
+
+    info.append("Usage")
+    info.append("-" * 70)
+    if "workflow.json" in str(workflow_files_info):
+        info.append("Execute with HyperFlow:")
+        info.append("  hflow run workflow.json")
+        info.append("")
+    if "workflow-wfformat.json" in str(workflow_files_info):
+        info.append("WfFormat JSON for workflow research and analysis")
+        info.append("  Compatible with WfCommons tools and benchmarks")
+        info.append("")
+    if "workflow.yml" in str(workflow_files_info):
+        info.append("YAML workflow (legacy format)")
+        info.append("")
+
+    info.append("Workflow Execution")
+    info.append("-" * 70)
+    if "workflow.json" in str(workflow_files_info):
+        info.append("Use the run-workflow.sh script (recommended):")
+        info.append("  cd tests/integration")
+        info.append("  ./run-workflow.sh /path/to/this/workflow/directory")
+        info.append("")
+        info.append("The script will automatically:")
+        info.append("  - Download remote FITS files from rc.txt")
+        info.append("  - Set up Docker Compose with Redis and HyperFlow")
+        info.append("  - Execute the workflow")
+        info.append("  - Clean up containers when done")
+        info.append("")
+        info.append("Or manually download files and run with HyperFlow:")
+        info.append("  python3 download-rc-files.py rc.txt .")
+        info.append("  hflow run workflow.json")
+    else:
+        info.append("Download remote FITS files listed in rc.txt:")
+        info.append("  python3 download-rc-files.py rc.txt .")
+    info.append("")
+
+    info.append("=" * 70)
+
+    return "\n".join(info)
+
+
 async def generate_montage_workflow(args: Dict[str, Any]) -> list[TextContent]:
-    """Generate a Montage workflow in YAML, WfFormat, or HyperFlow format."""
+    """Generate a Montage workflow in WfFormat and HyperFlow format (both by default)."""
 
     center = args["center"]
     degrees = args["degrees"]
     bands = args["bands"]
     workflow_name = args.get("workflow_name", "montage")
-    output_format = args.get("output_format", "yaml")
+    output_format = args.get("output_format", "both")  # Default: generate both formats
 
     # Validate inputs
     if not isinstance(bands, list) or len(bands) == 0:
@@ -243,199 +365,252 @@ async def generate_montage_workflow(args: Dict[str, Any]) -> list[TextContent]:
     if degrees <= 0 or degrees > 10:
         return [TextContent(type="text", text="Error: degrees must be between 0 and 10")]
 
-    if output_format not in ["yaml", "wfformat", "hyperflow"]:
-        return [TextContent(type="text", text="Error: output_format must be 'yaml', 'wfformat', or 'hyperflow'")]
+    if output_format not in ["yaml", "wfformat", "hyperflow", "both"]:
+        return [TextContent(type="text", text="Error: output_format must be 'yaml', 'wfformat', 'hyperflow', or 'both'")]
 
     # Create a temporary directory for generation
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Build command - choose generator based on format
         parent_dir = Path(__file__).parent.parent
 
-        # Choose generator script based on output format
-        if output_format == "wfformat":
-            generator_script = parent_dir / "montage-workflow-wfformat.py"
-            workflow_file_name = "montage-workflow.json"
-        else:
-            generator_script = parent_dir / "montage-workflow-yaml.py"
-            workflow_file_name = "montage-workflow.yml"
+        # Determine which generators to run
+        if output_format == "both":
+            generators = [
+                ("wfformat", parent_dir / "montage-workflow-wfformat.py", "montage-workflow.json"),
+                ("hyperflow", parent_dir / "montage-workflow-yaml.py", "montage-workflow.yml")
+            ]
+        elif output_format == "wfformat":
+            generators = [("wfformat", parent_dir / "montage-workflow-wfformat.py", "montage-workflow.json")]
+        elif output_format == "hyperflow":
+            generators = [("hyperflow", parent_dir / "montage-workflow-yaml.py", "montage-workflow.yml")]
+        else:  # yaml
+            generators = [("yaml", parent_dir / "montage-workflow-yaml.py", "montage-workflow.yml")]
 
-        if not generator_script.exists():
-            return [TextContent(type="text", text=f"Error: Generator script not found at {generator_script}")]
+        # Run generators and collect outputs
+        generated_formats = {}
 
-        cmd = [
-            "python3",
-            str(generator_script),
-            "--work-dir", tmpdir,
-            "--center", center,
-            "--degrees", str(degrees)
-        ]
+        for format_name, generator_script, workflow_file_name in generators:
+            if not generator_script.exists():
+                return [TextContent(type="text", text=f"Error: Generator script not found at {generator_script}")]
 
-        for band in bands:
-            cmd.extend(["--band", band])
+            # Use format-specific temp directory if generating multiple formats
+            if len(generators) > 1:
+                format_tmpdir = Path(tmpdir) / format_name
+                format_tmpdir.mkdir(exist_ok=True, parents=True)
+                work_dir = str(format_tmpdir)
+            else:
+                work_dir = tmpdir
 
-        # Run the generator
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
-            )
+            cmd = [
+                "python3",
+                str(generator_script),
+                "--work-dir", work_dir,
+                "--center", center,
+                "--degrees", str(degrees)
+            ]
 
-            if result.returncode != 0:
-                error_msg = "Error generating workflow:\n"
-                error_msg += f"Return code: {result.returncode}\n\n"
+            for band in bands:
+                cmd.extend(["--band", band])
 
-                if result.stderr:
-                    error_msg += f"Error output:\n{result.stderr}\n"
+            # Run the generator
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
 
-                if result.stdout:
-                    error_msg += f"\nStandard output:\n{result.stdout}\n"
+                if result.returncode != 0:
+                    error_msg = f"Error generating {format_name} workflow:\n"
+                    error_msg += f"Return code: {result.returncode}\n\n"
 
-                if not result.stderr and not result.stdout:
-                    error_msg += "No error message captured. Command executed but failed silently.\n"
-                    error_msg += f"Command: {' '.join(cmd)}\n"
+                    if result.stderr:
+                        error_msg += f"Error output:\n{result.stderr}\n"
 
-                return [TextContent(
-                    type="text",
-                    text=error_msg
-                )]
+                    if result.stdout:
+                        error_msg += f"\nStandard output:\n{result.stdout}\n"
 
-            # Read the generated workflow file
-            workflow_file = Path(tmpdir) / "data" / workflow_file_name
-            if not workflow_file.exists():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: Workflow file not generated at {workflow_file}"
-                )]
+                    if not result.stderr and not result.stdout:
+                        error_msg += "No error message captured. Command executed but failed silently.\n"
+                        error_msg += f"Command: {' '.join(cmd)}\n"
 
-            with open(workflow_file, 'r') as f:
-                workflow_content = f.read()
-
-            # Create output directory for workflows
-            workflows_base = Path("/workflows")
-            if not workflows_base.exists():
-                workflows_base = Path("/tmp/workflows")
-            workflows_base.mkdir(exist_ok=True, parents=True)
-
-            # Generate unique workflow directory name
-            import time
-            import shutil
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            safe_center = center.replace(" ", "_").replace(":", "").replace("/", "_")[:50]
-            base_name = f"{safe_center}_{degrees}deg_{timestamp}"
-
-            # Create workflow-specific directory
-            workflow_dir = workflows_base / base_name
-            workflow_dir.mkdir(exist_ok=True, parents=True)
-
-            # Copy entire data/ directory to workflow directory
-            src_data_dir = Path(tmpdir) / "data"
-            if src_data_dir.exists():
-                # Copy all files from tmpdir/data/ to workflow_dir/ except the main workflow file
-                # (we'll save that separately with a standard name)
-                workflow_files = ["montage-workflow.yml", "montage-workflow.json"]
-                for item in src_data_dir.iterdir():
-                    if item.is_file() and item.name not in workflow_files:
-                        shutil.copy2(item, workflow_dir / item.name)
-
-            # Update output_dir to point to the workflow directory
-            output_dir = workflow_dir
-
-            # Handle WfFormat output
-            if output_format == "wfformat":
-                # Save WfFormat JSON to file
-                output_file = output_dir / "workflow.json"
-
-                with open(output_file, 'w') as f:
-                    f.write(workflow_content)
-
-                # Parse for summary
-                wfformat_dict = json.loads(workflow_content)
-                spec = wfformat_dict.get('workflow', {}).get('specification', {})
-                tasks = spec.get('tasks', [])
-                files = spec.get('files', [])
-
-                # Count auxiliary files
-                aux_files = [f for f in output_dir.iterdir() if f.is_file() and f.name != "workflow.json"]
-
-                summary = f"Successfully generated Montage workflow (WfFormat JSON)\n"
-                summary += "=" * 70 + "\n\n"
-                summary += f"Workflow: {wfformat_dict.get('name', 'unknown')}\n\n"
-                summary += f"Statistics:\n"
-                summary += f"  Tasks: {len(tasks):,}\n"
-                summary += f"  Files: {len(files):,}\n"
-                summary += f"\n📁 Workflow directory: {output_dir}\n"
-                summary += f"📄 Workflow file: workflow.json ({len(workflow_content)/1024:.1f} KB)\n"
-                summary += f"📋 Auxiliary files: {len(aux_files)} files (*.tbl, *.hdr, etc.)\n"
-
-                return [TextContent(type="text", text=summary)]
-
-            # Convert to HyperFlow if requested
-            elif output_format == "hyperflow":
-                try:
-                    # Parse YAML (use UnsafeLoader for numpy objects)
-                    workflow_dict = yaml.load(workflow_content, Loader=yaml.UnsafeLoader)
-
-                    # Import compiler
-                    from yaml2hyperflow import HyperFlowCompiler
-
-                    # Compile to HyperFlow
-                    compiler = HyperFlowCompiler(workflow_dict)
-                    hyperflow_dict = compiler.compile()
-
-                    # Save to file
-                    json_output = json.dumps(hyperflow_dict, indent=2)
-                    output_file = output_dir / "workflow.json"
-
-                    with open(output_file, 'w') as f:
-                        f.write(json_output)
-
-                    # Count auxiliary files
-                    aux_files = [f for f in output_dir.iterdir() if f.is_file() and f.name != "workflow.json"]
-
-                    # Generate summary
-                    summary = _generate_workflow_summary(workflow_dict, "HyperFlow JSON")
-                    summary += f"\n📁 Workflow directory: {output_dir}\n"
-                    summary += f"📄 Workflow file: workflow.json ({len(json_output)/1024:.1f} KB)\n"
-                    summary += f"📋 Auxiliary files: {len(aux_files)} files (*.tbl, *.hdr, etc.)\n"
-
-                    return [TextContent(type="text", text=summary)]
-                except Exception as e:
                     return [TextContent(
                         type="text",
-                        text=f"Error converting to HyperFlow format: {str(e)}"
+                        text=error_msg
                     )]
-            else:
-                # Save YAML to file (default)
-                output_file = output_dir / "workflow.yml"
+
+                # Read the generated workflow file
+                workflow_file = Path(work_dir) / "data" / workflow_file_name
+                if not workflow_file.exists():
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: Workflow file not generated at {workflow_file}"
+                    )]
+
+                with open(workflow_file, 'r') as f:
+                    workflow_content = f.read()
+
+                generated_formats[format_name] = (workflow_content, Path(work_dir) / "data")
+
+            except subprocess.TimeoutExpired:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: {format_name} workflow generation timed out (>5 minutes)"
+                )]
+            except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                return [TextContent(
+                    type="text",
+                    text=f"Error generating {format_name} workflow: {str(e)}\n\nFull traceback:\n{error_details}"
+                )]
+
+        # Create output directory for workflows
+        workflows_base = Path("/workflows")
+        if not workflows_base.exists():
+            workflows_base = Path("/tmp/workflows")
+        workflows_base.mkdir(exist_ok=True, parents=True)
+
+        # Generate unique workflow directory name
+        import time
+        import shutil
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_center = center.replace(" ", "_").replace(":", "").replace("/", "_")[:50]
+        base_name = f"{safe_center}_{degrees}deg_{timestamp}"
+
+        # Create workflow-specific directory
+        workflow_dir = workflows_base / base_name
+        workflow_dir.mkdir(exist_ok=True, parents=True)
+
+        # Copy auxiliary files from the first generated format's data directory
+        # (all formats generate the same auxiliary files)
+        first_format_data_dir = None
+        for format_name, (content, data_dir) in generated_formats.items():
+            first_format_data_dir = data_dir
+            break
+
+        if first_format_data_dir and first_format_data_dir.exists():
+            # Copy all files except workflow files (we'll save those with specific names)
+            workflow_files = ["montage-workflow.yml", "montage-workflow.json"]
+            for item in first_format_data_dir.iterdir():
+                if item.is_file() and item.name not in workflow_files:
+                    shutil.copy2(item, workflow_dir / item.name)
+
+        # Save generated workflows with format-specific names
+        workflow_files_info = []
+
+        try:
+            # Handle wfformat
+            if "wfformat" in generated_formats:
+                wfformat_content, _ = generated_formats["wfformat"]
+                output_file = workflow_dir / "workflow-wfformat.json"
+                with open(output_file, 'w') as f:
+                    f.write(wfformat_content)
+                workflow_files_info.append(f"workflow-wfformat.json ({len(wfformat_content)/1024:.1f} KB)")
+
+            # Handle hyperflow (compile from YAML)
+            if "hyperflow" in generated_formats:
+                yaml_content, _ = generated_formats["hyperflow"]
+                workflow_dict = yaml.load(yaml_content, Loader=yaml.UnsafeLoader)
+
+                # Import compiler
+                from yaml2hyperflow import HyperFlowCompiler
+
+                # Compile to HyperFlow
+                compiler = HyperFlowCompiler(workflow_dict)
+                hyperflow_dict = compiler.compile()
+
+                # Save to file
+                json_output = json.dumps(hyperflow_dict, indent=2)
+                output_file = workflow_dir / "workflow.json"
 
                 with open(output_file, 'w') as f:
-                    f.write(workflow_content)
+                    f.write(json_output)
+                workflow_files_info.append(f"workflow.json ({len(json_output)/1024:.1f} KB)")
 
-                # Count auxiliary files
-                aux_files = [f for f in output_dir.iterdir() if f.is_file() and f.name != "workflow.yml"]
+            # Handle yaml (legacy)
+            if "yaml" in generated_formats:
+                yaml_content, _ = generated_formats["yaml"]
+                output_file = workflow_dir / "workflow.yml"
+                with open(output_file, 'w') as f:
+                    f.write(yaml_content)
+                workflow_files_info.append(f"workflow.yml ({len(yaml_content)/1024:.1f} KB)")
 
-                # Generate summary (use UnsafeLoader for numpy objects)
-                workflow_dict = yaml.load(workflow_content, Loader=yaml.UnsafeLoader)
-                summary = _generate_workflow_summary(workflow_dict, "YAML")
-                summary += f"\n📁 Workflow directory: {output_dir}\n"
-                summary += f"📄 Workflow file: workflow.yml ({len(workflow_content)/1024:.1f} KB)\n"
-                summary += f"📋 Auxiliary files: {len(aux_files)} files (*.tbl, *.hdr, etc.)\n"
+            # Count auxiliary files
+            aux_files = [f for f in workflow_dir.iterdir()
+                        if f.is_file() and not f.name.startswith("workflow")]
 
-                return [TextContent(type="text", text=summary)]
+            # Generate summary using the first available format
+            if "hyperflow" in generated_formats:
+                yaml_content, _ = generated_formats["hyperflow"]
+                workflow_dict = yaml.load(yaml_content, Loader=yaml.UnsafeLoader)
+            elif "yaml" in generated_formats:
+                yaml_content, _ = generated_formats["yaml"]
+                workflow_dict = yaml.load(yaml_content, Loader=yaml.UnsafeLoader)
+            elif "wfformat" in generated_formats:
+                wfformat_content, _ = generated_formats["wfformat"]
+                wfformat_dict = json.loads(wfformat_content)
+                # Create a simple dict for summary
+                spec = wfformat_dict.get('workflow', {}).get('specification', {})
+                workflow_dict = {
+                    'name': wfformat_dict.get('name', 'montage'),
+                    'tasks': spec.get('tasks', []),
+                    'files': spec.get('files', [])
+                }
+            else:
+                workflow_dict = {}
 
-        except subprocess.TimeoutExpired:
-            return [TextContent(
-                type="text",
-                text="Error: Workflow generation timed out (>5 minutes)"
-            )]
+            # Build summary
+            if output_format == "both":
+                format_desc = "WfFormat JSON and HyperFlow JSON"
+            elif output_format == "wfformat":
+                format_desc = "WfFormat JSON"
+            elif output_format == "hyperflow":
+                format_desc = "HyperFlow JSON"
+            else:
+                format_desc = "YAML"
+
+            summary = f"Successfully generated Montage workflow ({format_desc})\n"
+            summary += "=" * 70 + "\n\n"
+
+            if "wfformat" in generated_formats and "tasks" in workflow_dict:
+                summary += f"Workflow: {workflow_dict.get('name', 'montage')}\n\n"
+                summary += f"Statistics:\n"
+                summary += f"  Tasks: {len(workflow_dict.get('tasks', [])):,}\n"
+                summary += f"  Files: {len(workflow_dict.get('files', [])):,}\n"
+            else:
+                summary += _generate_workflow_summary(workflow_dict, format_desc)
+
+            # Generate workflow info file
+            info_content = _generate_workflow_info(
+                center=center,
+                degrees=degrees,
+                bands=bands,
+                output_format=output_format,
+                workflow_dict=workflow_dict,
+                workflow_files_info=workflow_files_info,
+                aux_files=aux_files,
+                timestamp=timestamp
+            )
+
+            info_file = workflow_dir / "WORKFLOW-INFO.txt"
+            with open(info_file, 'w') as f:
+                f.write(info_content)
+
+            summary += f"\n📁 Workflow directory: {workflow_dir}\n"
+            for wf_info in workflow_files_info:
+                summary += f"📄 Workflow file: {wf_info}\n"
+            summary += f"📋 Auxiliary files: {len(aux_files)} files (*.tbl, *.hdr, etc.)\n"
+            summary += f"ℹ️  Workflow info: WORKFLOW-INFO.txt\n"
+
+            return [TextContent(type="text", text=summary)]
+
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             return [TextContent(
                 type="text",
-                text=f"Error running generator: {str(e)}\n\nFull traceback:\n{error_details}"
+                text=f"Error saving workflows: {str(e)}\n\nFull traceback:\n{error_details}"
             )]
 
 

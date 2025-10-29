@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-10-29
+
+### Changed
+- **Default workflow generation now produces both HyperFlow and WfFormat in same directory**
+  - Default `output_format` changed from 'yaml' to 'both'
+  - Generates `workflow.json` (HyperFlow) and `workflow-wfformat.json` (WfFormat) together
+  - Reduces directory clutter by consolidating formats in single workflow directory
+  - YAML format (workflow.yml) now legacy, maintained for backward compatibility
+
+### Added
+- **WORKFLOW-INFO.txt file** - Auto-generated metadata file in each workflow directory
+  - Generation parameters (center, size, bands, format)
+  - Workflow statistics (task count, file count, inputs/outputs)
+  - Task breakdown by executable type
+  - Generated file listings with sizes
+  - Usage instructions for HyperFlow execution
+  - Download instructions for remote FITS files
+- **File ownership support** - Generated files now owned by host user instead of root
+  - Use Docker's `--user` flag to run container as current user
+  - Simpler than environment variables, works automatically
+  - Test scripts automatically pass `--user $(id -u):$(id -g)`
+- New 'both' output format option to generate HyperFlow + WfFormat simultaneously
+- Updated test suite to use 'both' as default format
+- Enhanced test script to accept format override via command-line argument
+
+### Technical Details
+- Workflow generators run in separate temporary directories when producing multiple formats
+- Auxiliary files (*.tbl, *.hdr, rc.txt) copied from first generator (identical across formats)
+- Tool schema updated to support 'both' enum value with proper validation
+- Test script supports: `./test-all-formats.sh <test-case> [both|yaml|wfformat|hyperflow]`
+- WORKFLOW-INFO.txt provides human-readable documentation for each generated workflow
+
 ## [1.1.0] - 2025-10-26
 
 ### Added

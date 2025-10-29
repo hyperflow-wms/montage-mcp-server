@@ -1,16 +1,18 @@
 #!/bin/bash
 #
-# Integration Test: Test all workflow formats (yaml, wfformat, hyperflow)
+# Integration Test: Test workflow generation (default: both HyperFlow and WfFormat)
 #
 # Usage:
-#   ./test-all-formats.sh [test-case-name]
+#   ./test-all-formats.sh [test-case-name] [format]
 #
 # Examples:
-#   ./test-all-formats.sh                  # Run default small-1band test
-#   ./test-all-formats.sh medium-3band     # Run specific test case
+#   ./test-all-formats.sh                  # Run default small-1band test with both formats
+#   ./test-all-formats.sh medium-3band     # Run specific test case with both formats
+#   ./test-all-formats.sh small-1band both # Explicitly test both formats
+#   ./test-all-formats.sh small-1band yaml # Test only yaml format (legacy)
 #
 # This script:
-#   1. Generates workflows in all three formats
+#   1. Generates workflows in specified format(s)
 #   2. Validates the generated workflows
 #   3. Optionally executes workflows with HyperFlow
 #
@@ -30,6 +32,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Test configuration
 TEST_CASE="${1:-small-1band}"
+FORMAT_OVERRIDE="${2:-}"
 TEST_OUTPUT_DIR="$PROJECT_ROOT/test-output"
 DOCKER_IMAGE="${DOCKER_IMAGE:-montage-mcp-server:latest}"
 
@@ -96,8 +99,9 @@ test_workflow_generation() {
 EOF
 )
 
-    # Generate workflow
+    # Generate workflow (run as current user for proper file ownership)
     local output=$(echo "$request" | docker run --rm -i \
+        --user $(id -u):$(id -g) \
         -v "$TEST_OUTPUT_DIR:/workflows" \
         "$DOCKER_IMAGE" 2>&1)
 
@@ -107,8 +111,8 @@ EOF
         return 1
     fi
 
-    # Extract workflow directory from output
-    local workflow_dir=$(echo "$output" | grep -oP 'Workflow directory: \K.*' | tail -1)
+    # Extract workflow directory from output (strip any trailing characters/emoji)
+    local workflow_dir=$(echo "$output" | grep -oP 'Workflow directory: \K/workflows/[A-Za-z0-9_.-]+' | tail -1)
 
     if [ -z "$workflow_dir" ]; then
         log_error "Could not extract workflow directory from output"
@@ -123,7 +127,12 @@ EOF
     # Verify workflow file exists
     if [ "$format" = "yaml" ]; then
         [ -f "$workflow_dir/workflow.yml" ] || { log_error "workflow.yml not found"; return 1; }
-    else
+    elif [ "$format" = "both" ]; then
+        [ -f "$workflow_dir/workflow.json" ] || { log_error "workflow.json not found"; return 1; }
+        [ -f "$workflow_dir/workflow-wfformat.json" ] || { log_error "workflow-wfformat.json not found"; return 1; }
+    elif [ "$format" = "wfformat" ]; then
+        [ -f "$workflow_dir/workflow-wfformat.json" ] || { log_error "workflow-wfformat.json not found"; return 1; }
+    else  # hyperflow
         [ -f "$workflow_dir/workflow.json" ] || { log_error "workflow.json not found"; return 1; }
     fi
 
@@ -202,8 +211,13 @@ main() {
     # Create test output directory
     mkdir -p "$TEST_OUTPUT_DIR"
 
-    # Test all formats
-    local formats=("yaml" "wfformat" "hyperflow")
+    # Test formats (default: both in single directory)
+    local formats
+    if [ -n "$FORMAT_OVERRIDE" ]; then
+        formats=("$FORMAT_OVERRIDE")
+    else
+        formats=("both")
+    fi
     local failed=0
 
     for format in "${formats[@]}"; do
@@ -226,6 +240,9 @@ main() {
         log_success "All tests passed! ($((${#formats[@]} - failed))/${#formats[@]})"
         echo ""
         log_info "Generated workflows are in: $TEST_OUTPUT_DIR"
+        echo ""
+        log_info "Note: By default, both workflow.json (HyperFlow) and workflow-wfformat.json (WfFormat) are generated in the same directory."
+        log_info "To test individual formats, use: $0 <test-case> yaml|wfformat|hyperflow"
         exit 0
     else
         log_error "Some tests failed! ($failed/${#formats[@]} failures)"
