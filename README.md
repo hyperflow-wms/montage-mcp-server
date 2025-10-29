@@ -1,12 +1,12 @@
 # Montage MCP Server
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/hyperflow-wms/montage-mcp-server/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/hyperflow-wms/montage-mcp-server/releases/tag/v1.1.0)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-hyperflowwms%2Fmontage--mcp--server-blue.svg)](https://hub.docker.com/r/hyperflowwms/montage-mcp-server)
 
 An MCP (Model Context Protocol) server that generates astronomical image mosaic workflows using the [Montage toolkit](http://montage.ipac.caltech.edu). Use natural language in Claude Desktop to create complex workflows for processing astronomical survey data.
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 
 ## Features
 
