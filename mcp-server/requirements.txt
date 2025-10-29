@@ -2,3 +2,4 @@
 mcp>=0.9.0
 pyyaml>=6.0
 astropy>=5.0
+wfcommons>=1.1

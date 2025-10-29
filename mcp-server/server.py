@@ -54,7 +54,7 @@ async def list_tools() -> list[Tool]:
             - degrees: Size of output mosaic in degrees (e.g., 0.2, 0.5, 1.0)
             - bands: List of band definitions in format 'survey:band:color'
               Examples: '2mass:j:red', 'dss:DSS2B:blue'
-            - output_format: Optional output format: 'yaml' (default) or 'hyperflow' (JSON)
+            - output_format: Optional output format: 'yaml' (default), 'wfformat' (WfCommons JSON), or 'hyperflow' (JSON)
 
             Returns: Workflow in YAML or HyperFlow JSON format
             """,
@@ -80,8 +80,8 @@ async def list_tools() -> list[Tool]:
                     },
                     "output_format": {
                         "type": "string",
-                        "enum": ["yaml", "hyperflow"],
-                        "description": "Output format: 'yaml' (default) or 'hyperflow' (JSON)"
+                        "enum": ["yaml", "wfformat", "hyperflow"],
+                        "description": "Output format: 'yaml' (default), 'wfformat' (WfCommons JSON), or 'hyperflow' (JSON)"
                     }
                 },
                 "required": ["center", "degrees", "bands"]
@@ -228,7 +228,7 @@ def _generate_workflow_summary(workflow_dict: dict, format_name: str) -> str:
 
 
 async def generate_montage_workflow(args: Dict[str, Any]) -> list[TextContent]:
-    """Generate a Montage workflow in YAML or HyperFlow format."""
+    """Generate a Montage workflow in YAML, WfFormat, or HyperFlow format."""
 
     center = args["center"]
     degrees = args["degrees"]
@@ -243,14 +243,21 @@ async def generate_montage_workflow(args: Dict[str, Any]) -> list[TextContent]:
     if degrees <= 0 or degrees > 10:
         return [TextContent(type="text", text="Error: degrees must be between 0 and 10")]
 
-    if output_format not in ["yaml", "hyperflow"]:
-        return [TextContent(type="text", text="Error: output_format must be 'yaml' or 'hyperflow'")]
+    if output_format not in ["yaml", "wfformat", "hyperflow"]:
+        return [TextContent(type="text", text="Error: output_format must be 'yaml', 'wfformat', or 'hyperflow'")]
 
     # Create a temporary directory for generation
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Build command
+        # Build command - choose generator based on format
         parent_dir = Path(__file__).parent.parent
-        generator_script = parent_dir / "montage-workflow-yaml.py"
+
+        # Choose generator script based on output format
+        if output_format == "wfformat":
+            generator_script = parent_dir / "montage-workflow-wfformat.py"
+            workflow_file_name = "montage-workflow.json"
+        else:
+            generator_script = parent_dir / "montage-workflow-yaml.py"
+            workflow_file_name = "montage-workflow.yml"
 
         if not generator_script.exists():
             return [TextContent(type="text", text=f"Error: Generator script not found at {generator_script}")]
@@ -294,34 +301,81 @@ async def generate_montage_workflow(args: Dict[str, Any]) -> list[TextContent]:
                     text=error_msg
                 )]
 
-            # Read the generated YAML
-            yaml_file = Path(tmpdir) / "data" / "montage-workflow.yml"
-            if not yaml_file.exists():
+            # Read the generated workflow file
+            workflow_file = Path(tmpdir) / "data" / workflow_file_name
+            if not workflow_file.exists():
                 return [TextContent(
                     type="text",
-                    text=f"Error: Workflow file not generated at {yaml_file}"
+                    text=f"Error: Workflow file not generated at {workflow_file}"
                 )]
 
-            with open(yaml_file, 'r') as f:
-                yaml_content = f.read()
+            with open(workflow_file, 'r') as f:
+                workflow_content = f.read()
 
             # Create output directory for workflows
-            output_dir = Path("/workflows")
-            if not output_dir.exists():
-                output_dir = Path("/tmp/workflows")
-            output_dir.mkdir(exist_ok=True, parents=True)
+            workflows_base = Path("/workflows")
+            if not workflows_base.exists():
+                workflows_base = Path("/tmp/workflows")
+            workflows_base.mkdir(exist_ok=True, parents=True)
 
-            # Generate unique filename
+            # Generate unique workflow directory name
             import time
+            import shutil
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             safe_center = center.replace(" ", "_").replace(":", "").replace("/", "_")[:50]
             base_name = f"{safe_center}_{degrees}deg_{timestamp}"
 
+            # Create workflow-specific directory
+            workflow_dir = workflows_base / base_name
+            workflow_dir.mkdir(exist_ok=True, parents=True)
+
+            # Copy entire data/ directory to workflow directory
+            src_data_dir = Path(tmpdir) / "data"
+            if src_data_dir.exists():
+                # Copy all files from tmpdir/data/ to workflow_dir/ except the main workflow file
+                # (we'll save that separately with a standard name)
+                workflow_files = ["montage-workflow.yml", "montage-workflow.json"]
+                for item in src_data_dir.iterdir():
+                    if item.is_file() and item.name not in workflow_files:
+                        shutil.copy2(item, workflow_dir / item.name)
+
+            # Update output_dir to point to the workflow directory
+            output_dir = workflow_dir
+
+            # Handle WfFormat output
+            if output_format == "wfformat":
+                # Save WfFormat JSON to file
+                output_file = output_dir / "workflow.json"
+
+                with open(output_file, 'w') as f:
+                    f.write(workflow_content)
+
+                # Parse for summary
+                wfformat_dict = json.loads(workflow_content)
+                spec = wfformat_dict.get('workflow', {}).get('specification', {})
+                tasks = spec.get('tasks', [])
+                files = spec.get('files', [])
+
+                # Count auxiliary files
+                aux_files = [f for f in output_dir.iterdir() if f.is_file() and f.name != "workflow.json"]
+
+                summary = f"Successfully generated Montage workflow (WfFormat JSON)\n"
+                summary += "=" * 70 + "\n\n"
+                summary += f"Workflow: {wfformat_dict.get('name', 'unknown')}\n\n"
+                summary += f"Statistics:\n"
+                summary += f"  Tasks: {len(tasks):,}\n"
+                summary += f"  Files: {len(files):,}\n"
+                summary += f"\n📁 Workflow directory: {output_dir}\n"
+                summary += f"📄 Workflow file: workflow.json ({len(workflow_content)/1024:.1f} KB)\n"
+                summary += f"📋 Auxiliary files: {len(aux_files)} files (*.tbl, *.hdr, etc.)\n"
+
+                return [TextContent(type="text", text=summary)]
+
             # Convert to HyperFlow if requested
-            if output_format == "hyperflow":
+            elif output_format == "hyperflow":
                 try:
                     # Parse YAML (use UnsafeLoader for numpy objects)
-                    workflow_dict = yaml.load(yaml_content, Loader=yaml.UnsafeLoader)
+                    workflow_dict = yaml.load(workflow_content, Loader=yaml.UnsafeLoader)
 
                     # Import compiler
                     from yaml2hyperflow import HyperFlowCompiler
@@ -332,15 +386,19 @@ async def generate_montage_workflow(args: Dict[str, Any]) -> list[TextContent]:
 
                     # Save to file
                     json_output = json.dumps(hyperflow_dict, indent=2)
-                    output_file = output_dir / f"{base_name}.json"
+                    output_file = output_dir / "workflow.json"
 
                     with open(output_file, 'w') as f:
                         f.write(json_output)
 
+                    # Count auxiliary files
+                    aux_files = [f for f in output_dir.iterdir() if f.is_file() and f.name != "workflow.json"]
+
                     # Generate summary
                     summary = _generate_workflow_summary(workflow_dict, "HyperFlow JSON")
-                    summary += f"\n📁 Workflow saved to: {output_file}\n"
-                    summary += f"📊 Size: {len(json_output):,} bytes ({len(json_output)/1024:.1f} KB)\n"
+                    summary += f"\n📁 Workflow directory: {output_dir}\n"
+                    summary += f"📄 Workflow file: workflow.json ({len(json_output)/1024:.1f} KB)\n"
+                    summary += f"📋 Auxiliary files: {len(aux_files)} files (*.tbl, *.hdr, etc.)\n"
 
                     return [TextContent(type="text", text=summary)]
                 except Exception as e:
@@ -349,17 +407,21 @@ async def generate_montage_workflow(args: Dict[str, Any]) -> list[TextContent]:
                         text=f"Error converting to HyperFlow format: {str(e)}"
                     )]
             else:
-                # Save YAML to file
-                output_file = output_dir / f"{base_name}.yml"
+                # Save YAML to file (default)
+                output_file = output_dir / "workflow.yml"
 
                 with open(output_file, 'w') as f:
-                    f.write(yaml_content)
+                    f.write(workflow_content)
+
+                # Count auxiliary files
+                aux_files = [f for f in output_dir.iterdir() if f.is_file() and f.name != "workflow.yml"]
 
                 # Generate summary (use UnsafeLoader for numpy objects)
-                workflow_dict = yaml.load(yaml_content, Loader=yaml.UnsafeLoader)
+                workflow_dict = yaml.load(workflow_content, Loader=yaml.UnsafeLoader)
                 summary = _generate_workflow_summary(workflow_dict, "YAML")
-                summary += f"\n📁 Workflow saved to: {output_file}\n"
-                summary += f"📊 Size: {len(yaml_content):,} bytes ({len(yaml_content)/1024:.1f} KB)\n"
+                summary += f"\n📁 Workflow directory: {output_dir}\n"
+                summary += f"📄 Workflow file: workflow.yml ({len(workflow_content)/1024:.1f} KB)\n"
+                summary += f"📋 Auxiliary files: {len(aux_files)} files (*.tbl, *.hdr, etc.)\n"
 
                 return [TextContent(type="text", text=summary)]
 

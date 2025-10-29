@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-10-26
+
+### Added
+- WfCommons WfFormat support as third output format option
+- New `montage-workflow-wfformat.py` generator for WfFormat JSON (schema v1.5)
+- New `wfformat2hyperflow.py` compiler to convert WfFormat to HyperFlow JSON
+- Support for 'wfformat' output_format parameter in generate_montage_workflow tool
+- WfCommons dependency (wfcommons>=1.1) for workflow research community standards
+- Parent-child task dependency computation based on file producers/consumers
+- Complete workflow specification with tasks and files sections
+- Execution metadata section with makespan and runtime information
+
+### Changed
+- Updated MCP server to support three output formats: 'yaml', 'wfformat', 'hyperflow'
+- Dockerfile now includes both YAML and WfFormat workflow generators
+- Enhanced tool descriptions to document WfFormat option
+
+### Technical Details
+- WfFormat follows WfCommons schema version 1.5
+- Full backward compatibility with existing 'yaml' and 'hyperflow' formats
+- WfFormat provides standardized JSON representation for workflow research
+- Docker image size remains optimized with cached layers
+
 ## [1.0.0] - 2025-01-26
 
 ### Added

@@ -45,7 +45,9 @@ COPY mcp-server/server.py /app/
 
 # Copy workflow generator scripts to root
 COPY montage-workflow-yaml.py /
+COPY montage-workflow-wfformat.py /
 COPY yaml2hyperflow.py /
+COPY wfformat2hyperflow.py /
 COPY validate-workflow.py /
 COPY workflow-stats.py /
 

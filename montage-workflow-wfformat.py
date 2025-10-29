@@ -1,27 +1,13 @@
 #!/usr/bin/env python3
 
 '''
-Abstract workflow generator for the Montage toolkit. The generated
-workflow will be in a WMS-agnostic YAML format that can be compiled
-to specific workflow management systems (Pegasus, HyperFlow, etc.)
+WfFormat workflow generator for the Montage toolkit. The generated
+workflow will be in WfCommons WfFormat JSON (schema v1.5).
 
-Based on the original Pegasus generator with modifications to output
-an abstract intermediate representation.
+Based on the YAML generator with WfFormat output instead of YAML.
 
-#  Copyright 2020 University Of Southern California
-#
-#  Licensed under the Apache License, Version 2.0 (the 'License');
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
-#
-#  http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing,
-#  software distributed under the License is distributed on an 'AS IS' BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-
+#  Copyright 2025 HyperFlow WMS Team
+#  Licensed under the MIT License
 '''
 
 import os
@@ -29,7 +15,8 @@ import argparse
 import re
 import subprocess
 import sys
-import yaml
+import json
+from datetime import datetime
 
 # Insert this directory in our search path
 os.sys.path.insert(0, os.getcwd())
@@ -37,89 +24,157 @@ os.sys.path.insert(0, os.getcwd())
 from astropy.io import ascii
 
 
-class AbstractWorkflow:
-    """Represents an abstract workflow in a WMS-agnostic format"""
+class WfFormatWorkflow:
+    """Represents a workflow in WfCommons WfFormat (schema v1.5)"""
 
     def __init__(self, name):
         self.name = name
-        self.tasks = []
-        self.files = {}
-        self.inputs = []
-        self.outputs = []
+        self.specification_tasks = []
+        self.specification_files = {}
         self.task_counter = 0
+        self.outputs = []  # Track final workflow outputs
+        self.file_metadata = {}  # Track source_url and is_input for rc.txt generation
 
     def add_file(self, name, source_url=None, is_input=False, is_output=False):
-        """Register a file in the workflow"""
-        if name not in self.files:
-            self.files[name] = {
-                'name': name,
-                'source': source_url,
+        """Register a file in the workflow specification (compatible with YAML API)"""
+        if name not in self.specification_files:
+            self.specification_files[name] = {
+                'id': name,
+                'sizeInBytes': 0  # We don't know size at generation time
+            }
+            # Store metadata for rc.txt generation
+            self.file_metadata[name] = {
+                'source_url': source_url,
                 'is_input': is_input,
                 'is_output': is_output
             }
-            if is_input and source_url:
-                self.inputs.append(name)
+            if is_output:
+                self.mark_output(name)
         return name
 
     def add_task(self, executable, args, inputs, outputs, config=None):
-        """Add a task to the workflow"""
-        task_id = "task_{}".format(self.task_counter)
+        """Add a task to the workflow specification (compatible with YAML API)"""
+        task_id = f"ID{self.task_counter:06d}"
         self.task_counter += 1
 
         task = {
+            'name': f"{executable}_{self.task_counter}",
             'id': task_id,
-            'name': executable,
-            'executable': executable,
-            'arguments': args,
-            'inputs': inputs,
-            'outputs': outputs
+            'parents': [],  # Will be computed later
+            'children': [],  # Will be computed later
+            'inputFiles': inputs if inputs else [],
+            'outputFiles': outputs if outputs else []
         }
 
-        if config:
-            task['config'] = config
+        # Register files
+        for input_file in inputs:
+            self.add_file(input_file)
+        for output_file in outputs:
+            self.add_file(output_file)
 
-        self.tasks.append(task)
-
-        # Mark output files
-        for output in outputs:
-            if output in self.files:
-                self.files[output]['is_output'] = True
-
+        self.specification_tasks.append(task)
         return task_id
 
     def mark_output(self, filename):
-        """Mark a file as workflow output"""
-        if filename in self.files:
-            self.files[filename]['is_output'] = True
-            if filename not in self.outputs:
-                self.outputs.append(filename)
+        """Mark a file as workflow output (compatible with YAML API)"""
+        if filename not in self.outputs:
+            self.outputs.append(filename)
 
-    def to_dict(self):
-        """Convert workflow to dictionary for YAML export"""
-        # Collect final outputs
-        final_outputs = []
-        for fname, finfo in self.files.items():
-            if finfo.get('is_output', False):
-                # Check if this file is not used as input to any task
-                used_as_input = any(fname in task['inputs'] for task in self.tasks)
-                if not used_as_input or fname in self.outputs:
-                    final_outputs.append(fname)
+    def _compute_dependencies(self):
+        """Compute parent-child relationships based on file dependencies"""
+        # Build file producers and consumers maps
+        producers = {}  # file -> task_id that produces it
+        consumers = {}  # file -> [task_ids that consume it]
+        
+        for task in self.specification_tasks:
+            task_id = task['id']
+            
+            # Track producers
+            for output_file in task['outputFiles']:
+                producers[output_file] = task_id
+            
+            # Track consumers
+            for input_file in task['inputFiles']:
+                if input_file not in consumers:
+                    consumers[input_file] = []
+                consumers[input_file].append(task_id)
+        
+        # Compute dependencies
+        for task in self.specification_tasks:
+            task_id = task['id']
+            parents = []
+            children = []
+            
+            # Parents: tasks that produce this task's inputs
+            for input_file in task['inputFiles']:
+                if input_file in producers:
+                    parent_id = producers[input_file]
+                    if parent_id != task_id and parent_id not in parents:
+                        parents.append(parent_id)
+            
+            # Children: tasks that consume this task's outputs
+            for output_file in task['outputFiles']:
+                if output_file in consumers:
+                    for child_id in consumers[output_file]:
+                        if child_id != task_id and child_id not in children:
+                            children.append(child_id)
+            
+            task['parents'] = parents
+            task['children'] = children
 
-        return {
+    def to_wfformat(self):
+        """Convert workflow to WfFormat JSON (schema v1.5)"""
+        # Compute dependencies
+        self._compute_dependencies()
+        
+        # Build WfFormat structure
+        wfformat = {
             'name': self.name,
-            'files': self.files,
-            'tasks': self.tasks,
-            'inputs': self.inputs,
-            'outputs': final_outputs
+            'schemaVersion': '1.5',
+            'createdAt': datetime.utcnow().isoformat() + 'Z',
+            'workflow': {
+                'specification': {
+                    'tasks': self.specification_tasks,
+                    'files': list(self.specification_files.values())
+                },
+                'execution': {
+                    'makespanInSeconds': 0.0,
+                    'executedAt': datetime.utcnow().isoformat() + 'Z',
+                    'tasks': [
+                        {
+                            'id': task['id'],
+                            'runtimeInSeconds': 0.0
+                        }
+                        for task in self.specification_tasks
+                    ],
+                    'machines': [
+                        {
+                            'nodeName': 'montage-generator',
+                            'cpu': {
+                                'count': 1,
+                                'speed': 0
+                            }
+                        }
+                    ]
+                }
+            }
         }
+        
+        return wfformat
 
     def write(self, filename):
-        """Write workflow to YAML file"""
+        """Write workflow to WfFormat JSON file"""
+        wfformat = self.to_wfformat()
+        
         with open(filename, 'w') as f:
-            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
-        print("Workflow written to {}".format(filename))
+            json.dump(wfformat, f, indent=2)
+        
+        print(f"WfFormat workflow written to {filename}")
+        print(f"  Tasks: {len(self.specification_tasks)}")
+        print(f"  Files: {len(self.specification_files)}")
 
 
+# Copy all Montage-specific functions from montage-workflow-yaml.py
 def which(file):
     for path in os.environ['PATH'].split(os.pathsep):
         if os.path.exists(os.path.join(path, file)):
@@ -147,7 +202,6 @@ def resolve_object_name(center):
         coord = SkyCoord.from_name(center)
         ra = coord.ra.degree
         dec = coord.dec.degree
-        # Object resolved successfully - no need for diagnostic output
         return (ra, dec)
     except Exception as e:
         raise ValueError(f"Could not resolve object name '{center}': {e}")
@@ -211,6 +265,8 @@ def generate_region_hdr(wf, center, degrees):
     wf.add_file('region-oversized.hdr',
                 source_url='file://' + os.getcwd() + '/data/region-oversized.hdr',
                 is_input=True)
+
+
 
 
 def add_band(wf, band_id, center, degrees, survey, band, color):
@@ -478,8 +534,8 @@ def main():
     (ra, dec) = resolve_object_name(args.center)
     center_coords = f"{ra} {dec}"
 
-    # Create abstract workflow
-    wf = AbstractWorkflow('montage')
+    # Create WfFormat workflow
+    wf = WfFormatWorkflow('montage')
 
     # Generate region header files
     generate_region_hdr(wf, args.center, args.degrees)
@@ -500,9 +556,9 @@ def main():
     # Write replica catalog (rc.txt) for Pegasus compatibility
     # Lists all input files with their source URLs
     with open('data/rc.txt', 'w') as rc:
-        for filename, file_info in wf.files.items():
-            if file_info.get('is_input') and file_info.get('source'):
-                url = file_info['source']
+        for filename, metadata in wf.file_metadata.items():
+            if metadata.get('is_input') and metadata.get('source_url'):
+                url = metadata['source_url']
                 # Determine site label based on URL
                 if url.startswith('file://'):
                     site_label = 'local'
@@ -512,8 +568,8 @@ def main():
                     site_label = 'remote'
                 rc.write(f'{filename} "{url}"  pool="{site_label}"\n')
 
-    # Write workflow to YAML
-    wf.write('data/montage-workflow.yml')
+    # Write workflow to WfFormat JSON
+    wf.write('data/montage-workflow.json')
 
 
 if __name__ == '__main__':
