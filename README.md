@@ -211,9 +211,34 @@ montage-mcp-server/
 
 **Resources**: Image ~920 MB, Memory 1 GB recommended
 
+## Testing
+
+### Quick Test
+
+```bash
+# Test workflow generation in all formats
+cd tests/integration
+./test-all-formats.sh
+
+# Run a generated workflow
+./run-workflow.sh ../../test-output/M17_0.2deg_YYYYMMDD_HHMMSS
+```
+
+### Test Cases
+
+| Test Case | Description | Time | Purpose |
+|-----------|-------------|------|---------|
+| `small-1band` | M17, 0.2°, 1 band | ~6min | Quick validation |
+| `medium-3band` | M17, 0.2°, 3 bands | ~17min | Full feature test |
+| `large-3band` | NGC 7293, 0.5°, 3 bands | ~50min | Stress test |
+
+See [tests/integration/README.md](tests/integration/README.md) for detailed testing documentation.
+
 ## Contributing
 
 Contributions welcome! Fork, create feature branch, add tests, submit PR.
+
+**Testing Requirements**: All PRs should include tests and pass `./tests/integration/test-all-formats.sh`
 
 ## License
 

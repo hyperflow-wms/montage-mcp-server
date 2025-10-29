@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # Redis server for HyperFlow job queue
+  redis:
+    image: redis:7-alpine
+    container_name: redis  # Named "redis" for --network container:redis compatibility
+    ports:
+      - "6379:6379"
+    networks:
+      - hyperflow-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
+  # HyperFlow workflow engine
+  hyperflow:
+    image: hyperflowwms/hyperflow:latest
+    container_name: hyperflow-engine
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - hyperflow-net
+    environment:
+      # Redis connection
+      - REDIS_URL=redis://redis:6379
+
+      # HyperFlow configuration
+      - HF_VAR_WORKER_CONTAINER=hyperflowwms/montage-worker:6.0-je1.3.4
+      - HF_VAR_WORK_DIR=${WORKFLOW_DIR}  # Host path - HyperFlow uses this for -v mount
+      - HF_VAR_HFLOW_IN_CONTAINER=true
+      - HF_VAR_function=redisCommand
+
+      # Run workers as current user to avoid root-owned files
+      - USER_ID=${USER_ID}
+      - USER_GID=${USER_GID}
+      #- HF_VAR_WORKER_USER=${USER_ID:-1000}:${GROUP_ID:-1000}
+
+      # Enable debug logging (optional)
+      # - HF_LOG_LEVEL=debug
+
+    volumes:
+      # Mount Docker socket to spawn worker containers
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # Mount workflow directory
+      # Usage: Set WORKFLOW_DIR environment variable or edit this path
+      - ${WORKFLOW_DIR:-./workflow}:/workflow
+
+    working_dir: /workflow
+
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      echo 'Installing Docker client...' &&
+      apk add --no-cache docker-cli &&
+      echo 'Waiting for Redis...' &&
+      sleep 2 &&
+      echo 'Listing workflow directory:' &&
+      ls -la /workflow &&
+      echo 'Starting HyperFlow...' &&
+      hflow run /workflow/workflow.json
+      "
+
+    # Keep container running for debugging if needed
+    # stdin_open: true
+    # tty: true
+
+networks:
+  hyperflow-net:
+    # Use external network or create with fixed name for worker access
+    # This ensures workers spawned by HyperFlow can join the same network
+    name: hyperflow-net
+    driver: bridge
+
+volumes:
+  redis-data:

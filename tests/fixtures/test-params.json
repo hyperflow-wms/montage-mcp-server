@@ -1,0 +1,37 @@
+{
+  "test_cases": [
+    {
+      "name": "small-1band",
+      "description": "Small 1-band workflow for quick testing",
+      "center": "M17",
+      "degrees": 0.2,
+      "bands": ["2mass:j:red"],
+      "timeout_minutes": 10
+    },
+    {
+      "name": "medium-3band",
+      "description": "Medium 3-band workflow for full feature testing",
+      "center": "M17",
+      "degrees": 0.2,
+      "bands": ["2mass:j:red", "2mass:h:green", "2mass:k:blue"],
+      "timeout_minutes": 30
+    },
+    {
+      "name": "large-3band",
+      "description": "Large 3-band workflow for stress testing",
+      "center": "NGC 7293",
+      "degrees": 0.5,
+      "bands": ["2mass:j:red", "2mass:h:green", "2mass:k:blue"],
+      "timeout_minutes": 60
+    },
+    {
+      "name": "dss-optical",
+      "description": "DSS optical survey workflow",
+      "center": "M31",
+      "degrees": 0.2,
+      "bands": ["dss:DSS2B:blue"],
+      "timeout_minutes": 15
+    }
+  ],
+  "output_formats": ["yaml", "wfformat", "hyperflow"]
+}
