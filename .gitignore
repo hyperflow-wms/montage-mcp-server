@@ -43,6 +43,7 @@ workflows/
 *.fits
 *.tbl
 *.hdr
+test-output/*
 
 # Environment variables
 .env
