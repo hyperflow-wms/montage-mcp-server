@@ -1,10 +1,10 @@
 # High-level roadmap overview
 
-This document contains a brief `montage-mcp-server` roadmap
+*Abstract of the `montage-mcp-server` project roadmap*
 
-## HyperFlow task execution using Montage MCP Server
+The project top level goal is to **sucessfully finish HyperFlow task execution using Montage MCP Server integrated with an external LLM**.
 
-The project top level goal is to sucessfully finish following test case:
+Expected sequence of actions:
 - user prompts LLM about astronomical image mosaic
 - LLM passes the question to Montage MCP Server
 - Montage prepares a workflow definition
@@ -12,18 +12,20 @@ The project top level goal is to sucessfully finish following test case:
 - user monitors the execution progress
 - the user gets the requested astronomical image mosaic
 
-## architecture design
+## Short term goals
 
-The objective is to define the Montage MCP Server and HyperFlow communication.
+### solution architecture design
 
-Currently there are two options:
+The objective is to define the Montage MCP Server and HyperFlow communication architecture.
+
+Options:
 - design a solution using two MCP servers: the Montage and one supporting Kubernetes
 - the LLM prepares kubectl or helm commands to execute HyperFlow task
 
-## assess the Kubernetes MCP servers maturity
+### assess the Kubernetes MCP servers maturity
 
 The goal is to investigate the capabilities of the Kubernetes MCP server. The objective is to determine whether it is capable of creating a HyperFlow task.
 
-## HyperFlow task status monitoring
+### HyperFlow task status monitoring
 
 The objective is to inform the LLM of the task calculation status.
