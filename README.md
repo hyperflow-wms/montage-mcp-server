@@ -1,19 +1,20 @@
 # Montage MCP Server
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/hyperflow-wms/montage-mcp-server/releases/tag/v1.1.0)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/hyperflow-wms/montage-mcp-server/releases/tag/v1.2.0)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-hyperflowwms%2Fmontage--mcp--server-blue.svg)](https://hub.docker.com/r/hyperflowwms/montage-mcp-server)
 
 An MCP (Model Context Protocol) server that generates astronomical image mosaic workflows using the [Montage toolkit](http://montage.ipac.caltech.edu). Use natural language in Claude Desktop to create complex workflows for processing astronomical survey data.
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 
 ## Features
 
 - **Natural Language Interface**: Generate workflows using conversational commands in Claude Desktop
 - **Object Name Resolution**: Use astronomical object names (M31, NGC 7293) instead of coordinates
 - **Multiple Survey Support**: 2MASS (near-infrared), DSS (optical), SDSS (multi-band optical)
-- **Dual Output Formats**: Export as YAML (WMS-agnostic) or HyperFlow JSON
+- **Multiple Output Formats**: Generate workflows in YAML (legacy), WfCommons WfFormat (JSON), HyperFlow (JSON), or all formats simultaneously
+- **Unified Workflow Generation**: Default mode generates both HyperFlow and WfFormat in a single directory with shared metadata
 - **Large Workflow Support**: Handles workflows >1MB via file-based output with volume mounts
 - **Complete Montage v6.0**: All 70+ Montage binaries compiled and ready to use
 
@@ -86,10 +87,16 @@ Generate a complete Montage workflow.
 - `center` (required): Object name ("M31") or coordinates ("10.68 41.27")
 - `degrees` (required): Mosaic size in degrees (0.1 to 10)
 - `bands` (required): Array of survey bands (e.g., `["2mass:j:red"]`)
-- `output_format` (optional): "yaml" (default) or "hyperflow"
+- `output_format` (optional): "both" (default - generates HyperFlow + WfFormat), "yaml" (legacy), "wfformat" (WfCommons), or "hyperflow"
 - `workflow_name` (optional): Custom workflow name
 
 **Returns:** Workflow summary with file location and statistics
+
+**Output Formats:**
+- **both** (default): Generates both `workflow.json` (HyperFlow) and `workflow-wfformat.json` (WfCommons) in one directory
+- **hyperflow**: HyperFlow JSON format (`workflow.json`)
+- **wfformat**: WfCommons WfFormat JSON (`workflow-wfformat.json`)
+- **yaml**: Legacy YAML format (`workflow.yml`)
 
 ### `list_supported_surveys`
 List all available astronomical surveys and their bands.

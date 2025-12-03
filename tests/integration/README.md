@@ -5,12 +5,18 @@ This directory contains integration tests for the Montage MCP Server, including 
 ## Quick Start
 
 ```bash
-# Test all workflow formats (yaml, wfformat, hyperflow)
+# Test workflow generation (default: both HyperFlow + WfFormat in one directory)
 cd tests/integration
 ./test-all-formats.sh
 
 # Test with specific test case
 ./test-all-formats.sh medium-3band
+
+# Test specific format only
+./test-all-formats.sh small-1band yaml       # Legacy YAML format
+./test-all-formats.sh small-1band wfformat   # WfCommons WfFormat only
+./test-all-formats.sh small-1band hyperflow  # HyperFlow only
+./test-all-formats.sh small-1band both       # Both formats (default)
 
 # Run a generated workflow with HyperFlow
 ./run-workflow.sh ../../test-output/M17_0.2deg_YYYYMMDD_HHMMSS
@@ -20,7 +26,8 @@ cd tests/integration
 
 ### Testing Scripts
 - **test-all-formats.sh** - Main integration test script
-  - Tests workflow generation in all three formats
+  - Tests workflow generation (default: both HyperFlow + WfFormat)
+  - Can test individual formats: yaml, wfformat, hyperflow, or both
   - Validates generated files
   - Optionally executes workflows
 
@@ -53,13 +60,13 @@ Test cases are defined in `../fixtures/test-params.json`:
 
 ## Usage
 
-### Test All Formats
+### Test Workflow Generation
 
 ```bash
-./test-all-formats.sh [test-case-name]
+./test-all-formats.sh [test-case-name] [format]
 ```
 
-**Example output:**
+**Example output (default - both formats):**
 ```
 ========================================
   Montage MCP Server Integration Test
@@ -72,29 +79,35 @@ Degrees: 0.2
 Bands: ["2mass:j:red"]
 
 ----------------------------------------
-[INFO] Testing yaml format generation...
-[SUCCESS] Generated yaml workflow in /path/to/test-output/M17_0.2deg_20251029_120000
-[INFO]   Files generated: 10
-[SUCCESS] ✓ yaml generation test passed
-
-----------------------------------------
-[INFO] Testing wfformat format generation...
-[SUCCESS] Generated wfformat workflow in /path/to/test-output/M17_0.2deg_20251029_120030
-[INFO]   Files generated: 10
-[SUCCESS] ✓ wfformat generation test passed
-
-----------------------------------------
-[INFO] Testing hyperflow format generation...
-[SUCCESS] Generated hyperflow workflow in /path/to/test-output/M17_0.2deg_20251029_120100
-[INFO]   Files generated: 10
-[SUCCESS] ✓ hyperflow generation test passed
+[INFO] Testing both format generation...
+[SUCCESS] Generated both workflow in /path/to/test-output/M17_0.2deg_20251203_080935
+[INFO]   Files generated: 12
+[SUCCESS] ✓ both generation test passed
 
 ========================================
   Test Summary
 ========================================
-[SUCCESS] All tests passed! (3/3)
+[SUCCESS] All tests passed! (1/1)
 
 [INFO] Generated workflows are in: /path/to/test-output
+
+[INFO] Note: By default, both workflow.json (HyperFlow) and workflow-wfformat.json (WfCommons) are generated in the same directory.
+[INFO] To test individual formats, use: ./test-all-formats.sh <test-case> yaml|wfformat|hyperflow
+```
+
+**Testing individual formats:**
+```bash
+# Test only YAML (legacy format)
+./test-all-formats.sh small-1band yaml
+
+# Test only WfFormat
+./test-all-formats.sh small-1band wfformat
+
+# Test only HyperFlow
+./test-all-formats.sh small-1band hyperflow
+
+# Test both formats explicitly (same as default)
+./test-all-formats.sh small-1band both
 ```
 
 ### Execute a Workflow
@@ -159,11 +172,13 @@ tests/fixtures/
 
 test-output/                    # Generated workflows (created during tests)
 └── M17_0.2deg_YYYYMMDD_HHMMSS/
-    ├── workflow.json
-    ├── rc.txt
-    ├── *.fits
-    ├── *.tbl
-    └── *.hdr
+    ├── workflow.json           # HyperFlow format
+    ├── workflow-wfformat.json  # WfCommons WfFormat
+    ├── rc.txt                  # Replica catalog
+    ├── region.hdr              # Region header
+    ├── *.fits                  # FITS image files
+    ├── *.tbl                   # Table files
+    └── *.hdr                   # Header files
 ```
 
 ## File Ownership
